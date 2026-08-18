@@ -11,18 +11,23 @@ use matrix::Matrix;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// File to source frames from
     #[arg(short = 'f', default_value_t = "./badapple.mp4".to_owned())]
     file: String,
 
+    /// Get the frames in the video
     #[arg(short = 'g', default_value_t = false)]
     get_frames: bool,
 
+    /// Scale the frames to the provided resolution
     #[arg(short = 's', default_value_t = false)]
     scale_frames: bool,
 
+    /// Width of the scaled resolution
     #[arg(short = 'W', default_value_t = 200)]
     scaled_width: u32,
 
+    /// Height of the scaled resolution
     #[arg(short = 'H', default_value_t = 100)]
     scaled_height: u32
 }

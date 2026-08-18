@@ -98,10 +98,6 @@ impl Matrix {
             self.save_col(col);
         }
     }
-
-    pub fn clear_buffer(&mut self) {
-        self.framebuffer = [[0; ROWS]; COLS];
-    }
     
     pub fn flush_buffer(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.send_command(MatrixCommand::FlushCols, &[])?;
