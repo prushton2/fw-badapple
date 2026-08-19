@@ -71,11 +71,12 @@ fn main() {
                 downscale_frame(frame, args.clone());
             }
         }
+
     }
 
     // we need to drop the framerate to about 5 fps since thats the limit on the module
     // this also means we need to only display every nth frame where n is the framerate ratio
-    let framerate_ratio = args.framerate / 5;
+    // let framerate_ratio = args.framerate / 5;
 
     let mut frames: Vec<DirEntry> = std::fs::read_dir("scaled_frames").expect("msg").filter(|e| e.is_ok()).map(|e| e.unwrap()).collect();
 
@@ -91,10 +92,7 @@ fn main() {
     let mut matrices = ledmatrix::discover();
 
     for i in 0..frames.len() {
-        if i % (framerate_ratio as usize) != 0 {
-            continue
-        }
-        
+
         let frame: image::ImageBuffer<Rgb<u8>, Vec<u8>> = ImageReader::open(frames[i].path())
             .unwrap()
             .with_guessed_format()
@@ -111,11 +109,9 @@ fn main() {
             }
         }
 
-        matrices[0].save_cols();
-        matrices[1].save_cols();
-        let _ = matrices[0].flush_buffer();
-        let _ = matrices[1].flush_buffer();
-        std::thread::sleep(std::time::Duration::from_millis((1000.0/5.0) as u64));
+        let _ = matrices[0].draw_bw();
+        let _ = matrices[1].draw_bw();
+        std::thread::sleep(std::time::Duration::from_millis((1000.0/args.framerate as f32) as u64));
     }
 
 }

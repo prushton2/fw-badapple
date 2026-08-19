@@ -427,7 +427,7 @@ dependencies = [
 [[package]]
 name = "fw-ledmatrix-wrapper"
 version = "0.1.0"
-source = "git+https://github.com/prushton2/fw-ledmatrix-wrapper.git#76db16633b83092c4daea5a6432dcbd9a24733c2"
+source = "git+https://github.com/prushton2/fw-ledmatrix-wrapper#54cb48bbefed1c1944accc215095255fdec8b246"
 dependencies = [
  "serialport",
 ]

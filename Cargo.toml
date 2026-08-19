@@ -7,4 +7,4 @@ edition = "2024"
 clap = { version = "4.6.6", features = ["derive"] }
 image = "0.25.10"
 serialport = "4.9.0"
-ledmatrix = { git="https://github.com/prushton2/fw-ledmatrix-wrapper.git", package = "fw-ledmatrix-wrapper"}
+ledmatrix = { git="https://github.com/prushton2/fw-ledmatrix-wrapper", package="fw-ledmatrix-wrapper" }
