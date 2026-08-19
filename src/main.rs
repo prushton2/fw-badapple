@@ -2,11 +2,8 @@ use std::{fs::DirEntry, process::Command};
 use std::sync::Arc;
 use image::{ImageBuffer, ImageReader, Rgb};
 use clap::Parser;
-use serialport::{self, SerialPortType};
 
-mod matrix;
-
-use matrix::Matrix;
+use ledmatrix;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -23,45 +20,62 @@ struct Args {
     #[arg(short = 's', default_value_t = false)]
     scale_frames: bool,
 
+    /// Framerate of the source video
+    #[arg(short = 'r', default_value_t = 30)]
+    framerate: u32,
+
+    /// Use multithreading for video scaling
+    #[arg(long, default_value_t = false)]
+    multithread: bool,
+
     /// Width of the scaled resolution
-    #[arg(short = 'W', default_value_t = 200)]
+    #[arg(short = 'W', default_value_t = 34)]
     scaled_width: u32,
 
     /// Height of the scaled resolution
-    #[arg(short = 'H', default_value_t = 100)]
+    #[arg(short = 'H', default_value_t = 9)]
     scaled_height: u32
 }
 
 fn main() {
-    let args = Args::parse();
+    let args = Arc::new(Args::parse());
 
     if args.get_frames {
         let _ = std::fs::remove_dir_all("frames");
         let _ = std::fs::create_dir("frames");
         
         let _ = Command::new("ffmpeg")
-        .args(["-i", &args.file, "./frames/frame%04d.jpg"])
-        .output();
+            .args(["-i", &args.file, "./frames/frame%04d.jpg"])
+            .output();
     }
 
     if args.scale_frames {
         let _ = std::fs::remove_dir_all("scaled_frames");
         let _ = std::fs::create_dir("scaled_frames");
     
-        let frames = std::fs::read_dir("./frames").expect("Cannot read frames");
-        let mut threads = vec![];
-
-        let arc_args = Arc::new(args);
-    
-        for frame_result in frames {
-            let arc = arc_args.clone();
-            threads.push(std::thread::spawn(|| {downscale_frame(frame_result, arc);}))
-        }
-    
-        for thread in threads {
-            let _ = thread.join();
+        let frames: Vec<DirEntry> = std::fs::read_dir("./frames").expect("Cannot read frames").filter(|e| e.is_ok()).map(|e| e.unwrap()).collect();
+        
+        if args.multithread {
+            let mut threads = vec![];
+            
+            for frame in frames {
+                let arc = args.clone();
+                threads.push(std::thread::spawn(|| {downscale_frame(frame, arc);}))
+            }
+            
+            for thread in threads {
+                let _ = thread.join();
+            }
+        } else {
+            for frame in frames {
+                downscale_frame(frame, args.clone());
+            }
         }
     }
+
+    // we need to drop the framerate to about 5 fps since thats the limit on the module
+    // this also means we need to only display every nth frame where n is the framerate ratio
+    let framerate_ratio = args.framerate / 5;
 
     let mut frames: Vec<DirEntry> = std::fs::read_dir("scaled_frames").expect("msg").filter(|e| e.is_ok()).map(|e| e.unwrap()).collect();
 
@@ -74,10 +88,14 @@ fn main() {
         return std::cmp::Ordering::Less;
     });
 
-    let mut matrices = init();
+    let mut matrices = ledmatrix::discover();
 
-    for file in frames {
-        let frame: image::ImageBuffer<Rgb<u8>, Vec<u8>> = ImageReader::open(file.path())
+    for i in 0..frames.len() {
+        if i % (framerate_ratio as usize) != 0 {
+            continue
+        }
+        
+        let frame: image::ImageBuffer<Rgb<u8>, Vec<u8>> = ImageReader::open(frames[i].path())
             .unwrap()
             .with_guessed_format()
             .unwrap()
@@ -97,39 +115,12 @@ fn main() {
         matrices[1].save_cols();
         let _ = matrices[0].flush_buffer();
         let _ = matrices[1].flush_buffer();
-        std::thread::sleep(std::time::Duration::from_millis((1000.0/30.0) as u64));
+        std::thread::sleep(std::time::Duration::from_millis((1000.0/5.0) as u64));
     }
 
 }
 
-
-fn init() -> Vec<Matrix> {
-    let ports: Vec<serialport::SerialPortInfo> = serialport::available_ports()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|e| {
-            match &e.port_type {
-                SerialPortType::UsbPort(port_info) => {
-                    return port_info.manufacturer == Some("Framework Computer Inc".to_owned()) && port_info.product == Some("LED Matrix Input Module".to_owned())
-                },
-                _ => false
-            }
-        })
-        .collect();
-
-    for port in &ports {
-        println!("{:?}", port);
-    }
-
-    let matrices: Vec<Matrix> = ports.iter().map(|e| Matrix::from_device_label(&e.port_name)).collect();
-    return matrices;
-}
-fn downscale_frame(frame_result: Result<DirEntry, std::io::Error>, args: Arc<Args>) {
-    let file = match frame_result {
-        Ok(t) => t,
-        Err(_) => return
-    };
-
+fn downscale_frame(file: DirEntry, args: Arc<Args>) {
     let frame: image::ImageBuffer<Rgb<u8>, Vec<u8>> = ImageReader::open(file.path())
         .unwrap()
         .with_guessed_format()
@@ -139,17 +130,30 @@ fn downscale_frame(frame_result: Result<DirEntry, std::io::Error>, args: Arc<Arg
         .to_rgb8();
 
     let mut scaled_buffer: image::ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::new(args.scaled_width, args.scaled_height);
+    //  buffer for averaging pixel values together (count, R, G, B)
+    let mut scaled_intermediate_buffer: Vec<Vec<(u32, u32, u32, u32)>> = vec![vec![(0,0,0,0); args.scaled_height as usize]; args.scaled_width as usize];
 
     for (x, y, pixel) in frame.enumerate_pixels() {
         let destination = downscale_to(x, y, frame.dimensions(), (args.scaled_width, args.scaled_height));
 
-        scaled_buffer.put_pixel(destination.0, destination.1, Rgb(
-            [
-                pixel.0[0],
-                pixel.0[1],
-                pixel.0[2],
-            ]
-        ));
+        let value = &mut scaled_intermediate_buffer[destination.0 as usize][destination.1 as usize];
+
+        value.0 += 1;
+        value.1 += pixel.0[0] as u32;
+        value.2 += pixel.0[1] as u32;
+        value.3 += pixel.0[2] as u32;
+    }
+
+    for x in 0..scaled_intermediate_buffer.len() {
+        for y in 0..scaled_intermediate_buffer[x].len() {
+            scaled_buffer.put_pixel(x as u32, y as u32, 
+                Rgb([
+                    (scaled_intermediate_buffer[x][y].1 / scaled_intermediate_buffer[x][y].0) as u8,
+                    (scaled_intermediate_buffer[x][y].2 / scaled_intermediate_buffer[x][y].0) as u8,
+                    (scaled_intermediate_buffer[x][y].3 / scaled_intermediate_buffer[x][y].0) as u8
+                ])
+            );
+        }
     }
 
     let new_path = file.path().to_str().unwrap().replace("frames", "scaled_frames");
