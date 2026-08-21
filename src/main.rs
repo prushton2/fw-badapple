@@ -3,7 +3,7 @@ use std::sync::Arc;
 use image::{ImageBuffer, ImageReader, Rgb};
 use clap::Parser;
 
-use ledmatrix;
+use fwinputmodule::led_matrix;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -89,7 +89,7 @@ fn main() {
         return std::cmp::Ordering::Less;
     });
 
-    let mut matrices = ledmatrix::discover();
+    let mut matrices = led_matrix::discover::<led_matrix::SimpleMatrix>();
 
     for i in 0..frames.len() {
 

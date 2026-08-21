@@ -419,15 +419,15 @@ name = "fw-badapple"
 version = "0.1.0"
 dependencies = [
  "clap",
- "fw-ledmatrix-wrapper",
+ "fwinputmodule",
  "image",
  "serialport",
 ]
 
 [[package]]
-name = "fw-ledmatrix-wrapper"
+name = "fwinputmodule"
 version = "0.1.0"
-source = "git+https://github.com/prushton2/fw-ledmatrix-wrapper#54cb48bbefed1c1944accc215095255fdec8b246"
+source = "git+https://github.com/prushton2/fw-inputmodule-rs#e54660789cbf4c2df232cc1f69450e5dbf6577cd"
 dependencies = [
  "serialport",
 ]
