@@ -9,12 +9,8 @@ use fwinputmodule::led_matrix;
 #[command(version, about, long_about = None)]
 struct Args {
     /// File to source frames from
-    #[arg(short = 'f', default_value_t = "./badapple.mp4".to_owned())]
-    file: String,
-
-    /// Get the frames in the video
-    #[arg(short = 'g', default_value_t = false)]
-    get_frames: bool,
+    #[arg(short = 'f')]
+    file: Option<String>,
 
     /// Scale the frames to the provided resolution
     #[arg(short = 's', default_value_t = false)]
@@ -34,22 +30,29 @@ struct Args {
 
     /// Height of the scaled resolution
     #[arg(short = 'H', default_value_t = 9)]
-    scaled_height: u32
+    scaled_height: u32,
+
+    /// Output destination: led_matrix (default), stdout, none
+    #[arg(short = 'o', default_value_t = "led_matrix".to_owned())]
+    output: String
 }
 
 fn main() {
     let args = Arc::new(Args::parse());
 
-    if args.get_frames {
+    if let Some(file) = &args.file {
+        println!("Getting frames...");
         let _ = std::fs::remove_dir_all("frames");
         let _ = std::fs::create_dir("frames");
         
         let _ = Command::new("ffmpeg")
-            .args(["-i", &args.file, "./frames/frame%04d.jpg"])
-            .output();
+        .args(["-i", file, "./frames/frame%04d.jpg"])
+        .output();
+        println!("Done");
     }
 
     if args.scale_frames {
+        println!("Scaling frames...");
         let _ = std::fs::remove_dir_all("scaled_frames");
         let _ = std::fs::create_dir("scaled_frames");
     
@@ -71,7 +74,7 @@ fn main() {
                 downscale_frame(frame, args.clone());
             }
         }
-
+        println!("Done");
     }
 
     // we need to drop the framerate to about 5 fps since thats the limit on the module
@@ -89,30 +92,68 @@ fn main() {
         return std::cmp::Ordering::Less;
     });
 
-    let mut matrices = led_matrix::discover::<led_matrix::SimpleMatrix>();
-
-    for i in 0..frames.len() {
-
-        let frame: image::ImageBuffer<Rgb<u8>, Vec<u8>> = ImageReader::open(frames[i].path())
-            .unwrap()
-            .with_guessed_format()
-            .unwrap()
-            .decode()
-            .unwrap()
-            .to_rgb8();
-
-        for (x, y, pixel) in frame.enumerate_pixels() {
-            if y < 9 {
-                matrices[0].write_buffer(y as usize, (33-x) as usize, pixel.0[0]);
-            } else {
-                matrices[1].write_buffer((y - 9) as usize, (33-x) as usize, pixel.0[0]);
+    match args.output.as_str() {
+        "led_matrix" => {
+            let mut matrices = led_matrix::discover::<led_matrix::SimpleMatrix>();
+        
+            for i in 0..frames.len() {
+        
+                let frame: image::ImageBuffer<Rgb<u8>, Vec<u8>> = ImageReader::open(frames[i].path())
+                    .unwrap()
+                    .with_guessed_format()
+                    .unwrap()
+                    .decode()
+                    .unwrap()
+                    .to_rgb8();
+        
+                for (x, y, pixel) in frame.enumerate_pixels() {
+                    if y < 9 {
+                        matrices[0].write_buffer(y as usize, (33-x) as usize, pixel.0[0]);
+                    } else {
+                        matrices[1].write_buffer((y - 9) as usize, (33-x) as usize, pixel.0[0]);
+                    }
+                }
+        
+                let _ = matrices[0].draw_bw();
+                let _ = matrices[1].draw_bw();
+                std::thread::sleep(std::time::Duration::from_millis((1000.0/args.framerate as f32) as u64));
             }
-        }
+        },
+        "stdout" => {
+            for i in 0..frames.len() {
+                let frame: image::ImageBuffer<Rgb<u8>, Vec<u8>> = ImageReader::open(frames[i].path())
+                    .unwrap()
+                    .with_guessed_format()
+                    .unwrap()
+                    .decode()
+                    .unwrap()
+                    .to_rgb8();
 
-        let _ = matrices[0].draw_bw();
-        let _ = matrices[1].draw_bw();
-        std::thread::sleep(std::time::Duration::from_millis((1000.0/args.framerate as f32) as u64));
+                let mut last_y = 0;
+                for (_, y, pixel) in frame.enumerate_pixels() {
+                    if y != last_y {
+                        last_y = y;
+                        println!("");
+                    }
+                    if pixel.0[0] as u32 + pixel.0[1] as u32 + pixel.0[2] as u32 > 128*3 {
+                        print!("▮");
+                    } else {
+                        print!(" ");
+                    }
+                }
+
+                println!("");
+                println!("");
+                println!("");
+                std::thread::sleep(std::time::Duration::from_millis((1000.0/args.framerate as f32) as u64));
+            }
+        },
+        "none" => {},
+        _ => {
+            panic!("Invalid output destination")
+        }
     }
+
 
 }
 
